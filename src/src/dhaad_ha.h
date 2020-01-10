@@ -17,10 +17,10 @@ void dhaad_halist_iterate(struct ha_interface *iface,
 			  int (* func)(int, void *, void *), void *arg);
 #endif
 
-void dhaad_insert_halist(struct ha_interface *i, 
-			 uint16_t key, uint16_t life_sec,
-			 struct nd_opt_prefix_info *pinfo,
-			 const struct in6_addr *lladdr);
+void dhaad_insert_halist(struct ha_interface *i, uint16_t key,
+			 uint16_t life_sec, uint16_t flags,
+			 struct nd_opt_prefix_info *pinfo);
+void dhaad_del_halist(struct ha_interface *i);
 
 int dhaad_ha_init(void);
 void dhaad_ha_cleanup(void);

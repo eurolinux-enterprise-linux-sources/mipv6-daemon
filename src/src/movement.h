@@ -8,6 +8,7 @@
 
 #include "list.h"
 #include "tqueue.h"
+#include "ndisc.h" /* for L2ADDR_MAX_SIZE*/
 
 #define IP6_MIN_MTU 1280
 
@@ -29,7 +30,7 @@ struct md_router {
 	uint8_t hoplimit;
 	uint8_t ra_flags;
 	short hwalen;
-	uint8_t hwa[16];
+	uint8_t hwa[L2ADDR_MAX_SIZE];
 	uint32_t mtu;
 	int ifindex;
 	int prefix_cnt;
@@ -47,6 +48,7 @@ struct md_coa {
 	uint8_t plen;
 	uint8_t scope;
 	int ifindex;
+	int if_is_tunnel;
 	struct in6_addr addr;
 	struct timespec timestamp;
 	struct timespec valid_time;
@@ -94,9 +96,8 @@ struct md_inet6_iface {
 	unsigned int link_flags;
 	int home_link;
 	int ll_dad_unsafe;
+	int is_tunnel;
 	unsigned short type;
-	short hwalen;
-	uint8_t hwa[16];
 	int32_t devconf[DEVCONF_MAX];
 	int32_t app_solicit;
 	struct timespec reachable;
@@ -131,6 +132,7 @@ enum {
 	ME_COA_EXPIRED,
 	ME_COA_LFT_DEC,
 	ME_COA_LFT_INC,
+	ME_INIT,
 };
 
 

@@ -16,7 +16,6 @@
 #define MAX_NONCE_LIFETIME        240 /* seconds */
 #define MAX_TOKEN_LIFETIME        210 /* seconds */
 #define MAX_RR_BINDING_LIFETIME   420 /* seconds */
-#define MAX_CONSECUTIVE_RESENDS   5   /* retransmissions */
 #define PREFIX_ADV_RETRIES        3   /* retransmissions */
 #define PREFIX_ADV_TIMEOUT        3   /* seconds */
 
@@ -42,7 +41,6 @@
 
 extern const struct timespec initial_bindack_timeout_ts;
 extern const struct timespec initial_dhaad_timeout_ts;
-extern const struct timespec initial_solicit_timer_ts;
 extern const struct timespec max_bindack_timeout_ts;
 extern const struct timespec max_nonce_lifetime_ts;
 extern const struct timespec max_token_lifetime_ts;
@@ -51,7 +49,6 @@ extern const struct timespec prefix_adv_timeout_ts;
 
 #define INITIAL_BINDACK_TIMEOUT_TS initial_bindack_timeout_ts
 #define INITIAL_DHAAD_TIMEOUT_TS initial_dhaad_timeout_ts
-#define INITIAL_SOLICIT_TIMER_TS initial_solicit_timer_ts
 #define MAX_BINDACK_TIMEOUT_TS max_bindack_timeout_ts
 #define MAX_NONCE_LIFETIME_TS max_nonce_lifetime_ts
 #define MAX_TOKEN_LIFETIME_TS max_token_lifetime_ts

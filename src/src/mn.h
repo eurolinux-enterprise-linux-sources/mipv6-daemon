@@ -45,9 +45,11 @@ struct ha_candidate_list {
 	pthread_mutex_t c_lock;
 };
 
-#define	HOME_LINK_BLOCK	0x1
-#define	HOME_ADDR_BLOCK	0x2
-#define	HOME_ADDR_RULE_BLOCK	0x4
+#define	HOME_LINK_BLOCK	0x01
+#define	HOME_ADDR_BLOCK	0x02
+#define	HOME_ADDR_RULE_BLOCK	0x04
+#define	NEMO_RA_BLOCK	0x08
+#define	NEMO_FWD_BLOCK	0x10
 
 struct mn_addr {
 	struct in6_addr addr;
@@ -82,9 +84,11 @@ struct home_addr_info {
 	int if_tunnel;
 	int if_home;
 	int if_block;
-	short hwalen;
 	uint8_t altcoa;
+	uint16_t mob_rtr;
 	char name[IF_NAMESIZE];
+	int mnp_count;
+	struct list_head mob_net_prefixes;
 };
 
 enum {
@@ -149,14 +153,9 @@ int mn_rr_start_handoff(void *vbule, void *vcoa);
 
 int mn_rr_post_home_handoff(void *bule, void *vcoa);
 
-void mn_start_ro(struct in6_addr *cn_addr, struct in6_addr *home_addr, int iif);
+void mn_start_ro(struct in6_addr *cn_addr, struct in6_addr *home_addr);
 
-static inline int mn_is_at_home(struct list_head *prefixes,
-				const struct in6_addr *home_prefix,
-				int home_plen)
-{
-	return prefix_list_find(prefixes, home_prefix, home_plen);
-}
-
+int mn_is_at_home(struct list_head *prefixes,
+		  const struct in6_addr *home_prefix, int home_plen);
 
 #endif /* __MN_H__ */

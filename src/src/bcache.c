@@ -39,25 +39,13 @@
 #include "mh.h"
 #include "cn.h"
 #include "vt.h"
+#include "prefix.h"
 
 #define BCACHE_BUCKETS 32
 
 static struct hash bc_hash;
 
-static int bcache_count = 0;
-
 pthread_rwlock_t bc_lock; /* Protects binding cache */
-
-/** 
- * get_bcache_count - returns number of home and cache entries
- * @type: HOMEREGENTRY, CACHEENTRY or ANY
- **/
-int get_bcache_count(int type)
-{
-	if (!type)
-		return bcache_count;
-	return 0;
-}
 
 void dump_bce(void *bce, void *os)
 {
@@ -87,6 +75,38 @@ void dump_bce(void *bce, void *os)
 		NIP6ADDR(&e->our_addr));
 	fprintf(out, " lifetime %ld\n ", e->lifetime.tv_sec);
 	fprintf(out, " seqno %d\n", e->seqno);
+
+	if (e->flags & IP6_MH_BA_MR) {
+		struct list_head *list;
+		int mnpcount = 0;
+
+		/* MR registration type */
+		fprintf(out, "MR Registration type: ");
+		switch(e->nemo_type) {
+		case BCE_NEMO_EXPLICIT:
+			fprintf(out, "explicit.\n");
+			break;
+		case BCE_NEMO_IMPLICIT:
+			fprintf(out, "implicit.\n");
+			break;
+		default:
+			fprintf(out, "unknown.\n");
+		}
+
+		/* Mobile Network prefixes */
+		fprintf(out, "MR Mobile network prefixes: ");
+		list_for_each(list, &e->mob_net_prefixes) {
+			struct prefix_list_entry *p;
+			p = list_entry(list, struct prefix_list_entry, list);
+			if (mnpcount)
+				fprintf(out, "                            ");
+			fprintf(out, "%x:%x:%x:%x:%x:%x:%x:%x/%d\n",
+				NIP6ADDR(&p->ple_prefix), p->ple_plen);
+			mnpcount++;
+		}
+		if (!mnpcount)
+			fprintf(out, " none registered.\n");
+	}
 
 	fflush(out);
 }
@@ -126,7 +146,7 @@ static void _expire(struct tq_elem *tqe)
  * %BCE_CACHED.  Returns allocated space for an entry or NULL if none
  * available.
  **/
-struct bcentry *bcache_alloc(int type)
+struct bcentry *bcache_alloc(__attribute__ ((unused)) int type)
 {
 	struct bcentry *tmp;
 	/* This function should really return space from a
@@ -138,12 +158,13 @@ struct bcentry *bcache_alloc(int type)
 	if (tmp == NULL)
 		return NULL;
 
+	memset(tmp, 0, sizeof(*tmp));
 	if (pthread_rwlock_init(&tmp->lock, NULL)) {
 		free(tmp);
 		return NULL;
 	}
-	memset(tmp, 0, sizeof(*tmp));
 	INIT_LIST_HEAD(&tmp->tqe.list);
+	INIT_LIST_HEAD(&tmp->mob_net_prefixes);
 	return tmp;
 }
 
@@ -158,14 +179,14 @@ void bcache_free(struct bcentry *bce)
 	/* This function should really return allocated space to free
 	 * pool. */
 	pthread_rwlock_destroy(&bce->lock);
+	prefix_list_free(&bce->mob_net_prefixes);
 	free(bce);
 }
 
 /**
- * bul_get - returns a binding update list entry
- * @hinfo: home address info, optional if our_addr is present
- * @our_addr: local address (home address)
- * @peer_addr: address of CN
+ * bcache_get - returns a binding cache entry
+ * @our_addr: our IPv6 address
+ * @peer_addr: peer's IPv6 address
  *
  * Returns reference to non-null entry on success and null on failure.
  * If caller adjusts lifetime of entry, caller must call
@@ -233,7 +254,6 @@ static int __bcache_insert(struct bcentry *bce)
 	if (ret)
 		return ret;
 
-	bcache_count++;
 	return 0;
 }
 
@@ -378,7 +398,6 @@ static void bce_delete(struct bcentry *bce, int flush)
 			return;
 		}
 	}
-	bcache_count--;
 	hash_delete(&bc_hash, &bce->our_addr, &bce->peer_addr);
 	pthread_rwlock_unlock(&bce->lock);
 	bcache_free(bce);
@@ -387,7 +406,7 @@ static void bce_delete(struct bcentry *bce, int flush)
 /**
  * bce_cleanup - cleans up a bcentry
  **/
-static int bce_cleanup(void *data, void *arg)
+static int bce_cleanup(void *data, __attribute__ ((unused)) void *arg)
 {
 	bce_delete(data, 1);
 	return 0;

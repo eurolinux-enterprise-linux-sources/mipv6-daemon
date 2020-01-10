@@ -38,6 +38,7 @@
 #include "dhaad_ha.h"
 #include "ha.h"
 #include "debug.h"
+#include "statistics.h"
 
 static pthread_rwlock_t ha_lock;
 
@@ -83,10 +84,9 @@ static void dhaad_expire_halist(struct tq_elem *tqe)
 	pthread_rwlock_unlock(&ha_lock);
 }
 
-void dhaad_insert_halist(struct ha_interface *i, 
-			 uint16_t key, uint16_t life_sec,
-			 struct nd_opt_prefix_info *pinfo,
-			 const struct in6_addr *lladdr)
+void dhaad_insert_halist(struct ha_interface *i, uint16_t key,
+			 uint16_t life_sec, uint16_t flags,
+			 struct nd_opt_prefix_info *pinfo)
 {
 	struct home_agent *ha = NULL, *tmp;
 	struct list_head *lp;
@@ -110,6 +110,7 @@ void dhaad_insert_halist(struct ha_interface *i,
 			return;
 		}
 		memset(ha, 0, sizeof(*ha));
+		ha->flags = flags;
 		ha->iface = i;
 		ha->addr = *addr;
 		INIT_LIST_HEAD(&ha->tqe.list);
@@ -136,25 +137,46 @@ void dhaad_insert_halist(struct ha_interface *i,
 	return;
 }
 
-static int dhaad_get_halist(struct ha_interface *i, int max, struct iovec *iov)
+void dhaad_del_halist(struct ha_interface *i)
+{
+	struct list_head *l, *n;
+
+	pthread_rwlock_wrlock(&ha_lock);
+	list_for_each_safe(l, n, &i->ha_list) {
+		struct home_agent *ha;
+		list_del(l);
+		ha = list_entry(l, struct home_agent, list);
+		del_task(&ha->tqe);
+		free(ha);
+	}
+	pthread_rwlock_unlock(&ha_lock);
+}
+
+static int dhaad_get_halist(struct ha_interface *i, uint16_t flags,
+			    int max, struct iovec *iov)
 {
 	struct list_head *lp;
 	int n = 0;
 	list_for_each(lp, &i->ha_list) {
 		struct home_agent *h;
 		h = list_entry(lp, struct home_agent, list);
-		n++;
-		iov[n].iov_len = sizeof(struct in6_addr);
-		iov[n].iov_base = &h->addr;
-		if (n >= max)
-			break;
+		if (!(flags & MIP_DHREQ_FLAG_SUPPORT_MR) ||
+		    h->flags & ND_OPT_HAI_FLAG_SUPPORT_MR) {
+			n++;
+			iov[n].iov_len = sizeof(struct in6_addr);
+			iov[n].iov_base = &h->addr;
+			if (n >= max)
+				break;
+		}
 	}
 	return n;
 }
 
 static void dhaad_recv_req(const struct icmp6_hdr *ih, ssize_t len,
 			   const struct in6_addr *src, 
-			   const struct in6_addr *dst, int iif, int hoplimit)
+			   const struct in6_addr *dst,
+			   __attribute__ ((unused)) int iif,
+			   __attribute__ ((unused)) int hoplimit)
 {
 	struct mip_dhaad_req *rqh = (struct mip_dhaad_req *)ih;
 	struct mip_dhaad_rep *rph;
@@ -163,8 +185,10 @@ static void dhaad_recv_req(const struct icmp6_hdr *ih, ssize_t len,
 	struct ha_interface *i;
 	struct in6_addr *ha_addr = NULL;
 
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_IN_DHAAD_REQ);
+
 	/* validity check */
-	if (len < sizeof(struct mip_dhaad_req))
+	if (len < 0 || (size_t)len < sizeof(struct mip_dhaad_req))
 		return;
 
 	if ((i = ha_get_if_by_anycast(dst, &ha_addr)) == NULL) {
@@ -177,11 +201,16 @@ static void dhaad_recv_req(const struct icmp6_hdr *ih, ssize_t len,
 
 	rph->mip_dhrep_id = rqh->mip_dhreq_id;
 
+	if (rqh->mip_dhreq_flags_reserved & MIP_DHREQ_FLAG_SUPPORT_MR)
+		rph->mip_dhrep_flags_reserved = MIP_DHREP_FLAG_SUPPORT_MR;
+
 	pthread_rwlock_rdlock(&ha_lock);
-	iovlen = dhaad_get_halist(i, MAX_HOME_AGENTS, iov);
+	iovlen = dhaad_get_halist(i, rqh->mip_dhreq_flags_reserved,
+				  MAX_HOME_AGENTS, iov);
 	icmp6_send(i->ifindex, 64, ha_addr, src, iov, iovlen + 1);
 	pthread_rwlock_unlock(&ha_lock);
 	free_iov_data(&iov[0], 1);
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_OUT_DHAAD_REP);
 }
 
 static struct icmp6_handler dhaad_req_handler = {

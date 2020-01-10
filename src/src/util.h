@@ -185,12 +185,10 @@ static inline int in6_is_addr_routable_unicast(const struct in6_addr *a)
  **/
 static inline void free_iov_data(struct iovec *iov, int count)
 {
-	int len = count;
-
 	if (iov == NULL) return;
-	while (len--) {
-		if (iov[len].iov_base)
-			free(iov[len].iov_base);
+	while (count--) {
+		if (iov[count].iov_base)
+			free(iov[count].iov_base);
 	}
 }
 
@@ -208,6 +206,9 @@ static inline long max(long a, long b)
 {
 	return (a > b) ? a : b;
 }
+
+uint16_t in6_cksum(const struct in6_addr *src, const struct in6_addr *dst,
+		   const void *data, socklen_t datalen, uint8_t nh);
 
 /*
  * XXX: These may be missing on kernel header because either kernel is not

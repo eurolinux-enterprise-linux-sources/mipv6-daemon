@@ -47,6 +47,7 @@
 #include "prefix.h"
 #include "mn.h"
 #include "hash.h"
+#include "statistics.h"
 
 struct mps_entry {
 	struct in6_addr hoa;
@@ -101,10 +102,11 @@ static int mpd_send_mps(struct mps_entry *e)
 
 	/* no need to worry about network byte order since 
 	   mip_ps_id only serves as an identifier */
-	e->id = ih->mip_ps_id = random();
+	ih->mip_ps_id = e->id;
 	clock_gettime(CLOCK_REALTIME, &e->lastsent);
 	icmp6_send(0, 0, &e->hoa, &e->ha, &iov, 1);
 	free_iov_data(&iov, 1);
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_OUT_MPS);
 	return 0;
 }
 
@@ -145,8 +147,9 @@ static void mpd_send_first_mps(struct tq_elem *tqe)
 	pthread_mutex_lock(&mps_lock);
 	if (!task_interrupted()) {
 		struct mps_entry *e = tq_data(tqe, struct mps_entry, tqe);
+		e->id = random();
 		mpd_send_mps(e);
-		e->delay = INITIAL_SOLICIT_TIMER_TS;
+		e->delay = conf.InitialSolicitTimer_ts;
 		add_task_rel(&e->delay, &e->tqe, mpd_resend_mps);
 	}
 	pthread_mutex_unlock(&mps_lock);
@@ -193,7 +196,9 @@ out:
 
 static void mpd_recv_mpa(const struct icmp6_hdr *ih, ssize_t len,
 			 const struct in6_addr *src,
-			 const struct in6_addr *dst, int iif, int hoplimit)
+			 const struct in6_addr *dst,
+			 __attribute__ ((unused)) int iif,
+			 __attribute__ ((unused)) int hoplimit)
 {
 	uint8_t *opt = (uint8_t *)(ih + 1);
 	struct mps_entry *e;
@@ -223,9 +228,9 @@ static void mpd_recv_mpa(const struct icmp6_hdr *ih, ssize_t len,
 	if (hai != NULL) {
 		int optlen = len - sizeof(struct icmp6_hdr);
 		while (optlen > 1) {
-			int olen = opt[1] << 3;
+			uint16_t olen = opt[1] << 3;
 			
-			if (olen > optlen || olen == 0)
+			if (olen > (unsigned int)optlen || olen == 0)
 				break;
 
 			if (opt[0] == ND_OPT_PREFIX_INFORMATION) {

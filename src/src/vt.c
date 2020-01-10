@@ -61,9 +61,11 @@
 #include "bcache.h"
 #include "prefix.h"
 #include "ha.h"
+#include "cn.h"
 #include "mn.h"
 #include "mpdisc_mn.h"
 #include "mpdisc_ha.h"
+#include "statistics.h"
 
 #define VT_PKT_BUFLEN		(8192)
 #define VT_REPLY_BUFLEN		(LINE_MAX)
@@ -97,7 +99,7 @@ static int vt_server_fini(void);
 static int vt_connect_close(struct vt_handle *vh);
 
 /* Find a handle which is able to be modified */
-static struct vt_handle *vt_handle_get(const struct vt_handle *vh)
+static struct vt_handle *vt_handle_get(void)
 {
 	return vt_connect_handle;
 }
@@ -146,78 +148,198 @@ static const char *bool_str(vt_bool_t b)
 	return b == VT_BOOL_TRUE ? yes : no;
 }
 
-static int vt_cmd_sys_fancy_off(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_fancy_off(const struct vt_handle *vh,
+				__attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	sysvh->vh_opt.fancy = VT_BOOL_FALSE;
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.fancy));
 	return 0;
 }
 
-static int vt_cmd_sys_fancy_on(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_fancy_on(const struct vt_handle *vh,
+			       __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	sysvh->vh_opt.fancy = VT_BOOL_TRUE;
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.fancy));
 	return 0;
 }
 
-static int vt_cmd_sys_fancy(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_fancy(const struct vt_handle *vh,
+			    __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.fancy));
 	return 0;
 }
 
-static int vt_cmd_sys_verbose_off(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_verbose_off(const struct vt_handle *vh,
+				  __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	sysvh->vh_opt.verbose = VT_BOOL_FALSE;
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.verbose));
 	return 0;
 }
 
-static int vt_cmd_sys_verbose_on(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_verbose_on(const struct vt_handle *vh,
+				 __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	sysvh->vh_opt.verbose = VT_BOOL_TRUE;
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.verbose));
 	return 0;
 }
 
-static int vt_cmd_sys_verbose(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_verbose(const struct vt_handle *vh,
+			      __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.verbose));
 	return 0;
 }
 
-static int vt_cmd_sys_prompt_off(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_prompt_off(const struct vt_handle *vh,
+				 __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	sysvh->vh_opt.prompt = VT_BOOL_FALSE;
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.prompt));
 	return 0;
 }
 
-static int vt_cmd_sys_prompt_on(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_prompt_on(const struct vt_handle *vh,
+				__attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	sysvh->vh_opt.prompt = VT_BOOL_TRUE;
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.prompt));
 	return 0;
 }
 
-static int vt_cmd_sys_prompt(const struct vt_handle *vh, const char *str)
+static int vt_cmd_sys_prompt(const struct vt_handle *vh,
+			     __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	struct vt_handle *sysvh = vt_handle_get();
 	fprintf(vh->vh_stream, "%s\n", bool_str(sysvh->vh_opt.prompt));
 	return 0;
 }
 
-static int vt_cmd_sys_quit(const struct vt_handle *vh, const char *str)
+static int vt_cmd_showstats(const struct vt_handle *vh, __attribute__ ((unused)) const char *str)
 {
-	struct vt_handle *sysvh = vt_handle_get(vh);
+	pthread_mutex_lock(&mipl_stat.lock);
+	fprintf(vh->vh_stream, "Input Statistics:\n");
+	fprintf(vh->vh_stream, "     %lu Mobility Headers\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_MH]);
+	fprintf(vh->vh_stream, "     %lu HoTI messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_HOTI]);
+	fprintf(vh->vh_stream, "     %lu CoTI messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_COTI]);
+	fprintf(vh->vh_stream, "     %lu HoT messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_HOT]);
+	fprintf(vh->vh_stream, "     %lu CoT messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_COT]);
+	fprintf(vh->vh_stream, "     %lu BU messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_BU]);
+	fprintf(vh->vh_stream, "     %lu BA messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_BA]);
+	fprintf(vh->vh_stream, "     %lu BR messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_BRR]);
+	fprintf(vh->vh_stream, "     %lu BE messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_BE]);
+
+	fprintf(vh->vh_stream, "     %lu DHAAD request\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_DHAAD_REQ]);
+	fprintf(vh->vh_stream, "     %lu DHAAD reply\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_DHAAD_REP]);
+	fprintf(vh->vh_stream, "     %lu MPA\n", 0L);
+	fprintf(vh->vh_stream, "     %lu MPS\n", 0L);
+	fprintf(vh->vh_stream, "     %lu Home Address Option\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_HAO]);
+	fprintf(vh->vh_stream, "     %lu unverified Home Address Option\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_HAO]);
+	fprintf(vh->vh_stream, "     %lu Routing Header type 2\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_RH2]);
+
+	fprintf(vh->vh_stream, "     %lu reverse tunnel input\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_RTUN]);
+	fprintf(vh->vh_stream, "     %lu bad MH checksum\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_MH_CHK]);
+	fprintf(vh->vh_stream, "     %lu bad payload protocol\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_PAYLOAD]);
+	fprintf(vh->vh_stream, "     %lu unknown MH type\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_UNKNOWN_MH]);
+	fprintf(vh->vh_stream, "     %lu not my home address\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_NOT_HOA]);
+	fprintf(vh->vh_stream, "     %lu no related binding update entry\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_NO_BU]);
+	fprintf(vh->vh_stream, "     %lu home init cookie mismatch\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_H_COOKIE]);
+	fprintf(vh->vh_stream, "     %lu careof init cookie mismatch\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_C_COOKIE]);
+	fprintf(vh->vh_stream, "     %lu unprotected binding signaling packets\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_UNSAFEBU]);
+	fprintf(vh->vh_stream, "     %lu BUs discarded due to bad HAO\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_BU_HAO]);
+	fprintf(vh->vh_stream, "     %lu RR authentication failed\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_RR_FAIL]);
+	fprintf(vh->vh_stream, "     %lu seqno mismatch\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_SEQ]);
+	fprintf(vh->vh_stream, "     %lu parameter problem for HAO\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_HAO_PARAM]);
+	fprintf(vh->vh_stream, "     %lu parameter problem for MH\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_MH_PARAM]);
+	fprintf(vh->vh_stream, "     %lu Invalid Care-of address\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_COA]);
+	fprintf(vh->vh_stream, "     %lu Invalid mobility options\n",
+		   	mipl_stat.values[MIPL_STATISTICS_IN_X_MOBOPT]);
+
+	fprintf(vh->vh_stream, "Output Statistics:\n");
+
+	fprintf(vh->vh_stream, "     %lu Mobility Headers\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_MH]);
+	fprintf(vh->vh_stream, "     %lu HoTI messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_HOTI]);
+	fprintf(vh->vh_stream, "     %lu CoTI messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_COTI]);
+	fprintf(vh->vh_stream, "     %lu HoT messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_HOT]);
+	fprintf(vh->vh_stream, "     %lu CoT messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_COT]);
+	fprintf(vh->vh_stream, "     %lu BU messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_BU]);
+	fprintf(vh->vh_stream, "     %lu BA messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_BA]);
+	fprintf(vh->vh_stream, "     %lu BR messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_BRR]);
+	fprintf(vh->vh_stream, "     %lu BE messages\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_BE]);
+
+	fprintf(vh->vh_stream, "     %lu DHAAD request\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_DHAAD_REQ]);
+	fprintf(vh->vh_stream, "     %lu DHAAD reply\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_DHAAD_REP]);
+	fprintf(vh->vh_stream, "     %lu MPA\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_MPA]);
+	fprintf(vh->vh_stream, "     %lu MPS\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_MPS]);
+	fprintf(vh->vh_stream, "     %lu Home Address Option\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_HAO]);
+	fprintf(vh->vh_stream, "     %lu Routing Header type 2\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_RH2]);
+	fprintf(vh->vh_stream, "     %lu reverse tunneled input\n",
+		   	mipl_stat.values[MIPL_STATISTICS_OUT_RTUN]);
+
+	pthread_mutex_unlock(&mipl_stat.lock);
+
+	return 0;
+}
+
+static int vt_cmd_sys_quit(const struct vt_handle *vh,
+			   __attribute__ ((unused)) const char *str)
+{
+	struct vt_handle *sysvh = vt_handle_get();
 
 	if (strlen(str) > 0) {
 		int ret = fprintf(vh->vh_stream, "unknown args\n");
@@ -287,6 +409,11 @@ static struct vt_cmd_entry vt_cmd_fancy_off = {
 	.parser = vt_cmd_sys_fancy_off,
 };
 
+static struct vt_cmd_entry vt_cmd_stats = {
+	.cmd = "stats",
+	.parser = vt_cmd_showstats,
+};
+
 static int vt_cmd_sys_init(void)
 {
 	int ret;
@@ -326,6 +453,10 @@ static int vt_cmd_sys_init(void)
 	if (ret < 0)
 		return ret;
 	ret = vt_cmd_add(&vt_cmd_fancy, &vt_cmd_fancy_off);
+	if (ret < 0)
+		return ret;
+
+	ret = vt_cmd_add_root(&vt_cmd_stats);
 	if (ret < 0)
 		return ret;
 
@@ -678,13 +809,24 @@ static int bcache_vt_dump(void *data, void *arg)
 
 	fprintf(vh->vh_stream, "\n");
 
+	/* Dump the registered MNP */
+	{
+		struct list_head *l;
+		list_for_each(l, &bce->mob_net_prefixes) {
+			struct prefix_list_entry *p;
+			p = list_entry(l, struct prefix_list_entry, list);
+			fprintf(vh->vh_stream, " MNP: %x:%x:%x:%x:%x:%x:%x:%x/%d\n", 
+                    NIP6ADDR(&p->ple_prefix), p->ple_plen);
+		}
+	}
+
 	return 0;
 }
 
 static int vt_str_to_uint32(const struct vt_handle *vh, const char *str,
 			    uint32_t *val)
 {
-	long int v;
+	unsigned long int v;
 	char *ptr = NULL;
 
 	v = strtoul(str, &ptr, 0);
@@ -893,6 +1035,8 @@ static int bcache_vt_cmd_bc_mod(const struct vt_handle *vh, const char *str,
 	{
 		struct ip6_mh_binding_update bu;
 		struct in6_addr_bundle ab;
+		struct ip6_mh *mh = (struct ip6_mh *)&bu;
+		int len = sizeof(bu);
 
 		memset(&bu, 0, sizeof(bu));
 		bu.ip6mhbu_flags = bce_flags;
@@ -907,8 +1051,12 @@ static int bcache_vt_cmd_bc_mod(const struct vt_handle *vh, const char *str,
 			ab.remote_coa = NULL;
 		ab.bind_coa = NULL;
 
-		err = ha_recv_bu_main((struct ip6_mh *)&bu, sizeof(bu), &ab, 0,
-				      flags);
+		if (bu.ip6mhbu_flags & IP6_MH_BU_HOME)
+			err = ha_recv_home_bu(mh, len, &ab, 0, flags);
+		else {
+			cn_recv_bu(mh, len, &ab, 0);
+			err = 0;
+		}
 	}
 	if (err < 0)
 		fprintf(vh->vh_stream, "bc error=%d(%s)\n",
@@ -1103,7 +1251,7 @@ static int vt_cmd_match(struct vt_cmd_entry *e, const char *cmd)
 /*
  * It is only used the parser which is the final level away from root.
  */
-static int vt_cmd_input(const struct vt_handle *vh, char *line, ssize_t len)
+static int vt_cmd_input(const struct vt_handle *vh, char *line)
 {
 	struct vt_cmd_entry *ce = &vt_cmd_root;
 	const char *p;
@@ -1203,7 +1351,7 @@ static int vt_connect_input(struct vt_handle *vh, void *data, ssize_t len)
 	memcpy(line, data, len);
 	line[len - 1] = 0;
 
-	ret = vt_cmd_input(vh, line, len);
+	ret = vt_cmd_input(vh, line);
 
 	if (ret != 0)
 		goto fin;
@@ -1375,7 +1523,7 @@ static int vt_connect_init(const struct vt_server_entry *vse)
 	return 0; /* ignore error here */
 }
 
-static void *vt_server_recv(void *arg)
+static void *vt_server_recv(__attribute__ ((unused)) void *arg)
 {
 	pthread_dbg("thread started");
 
@@ -1445,7 +1593,7 @@ static int vt_server_clean(const struct sockaddr *sa, int salen)
 {
 	if (sa->sa_family == AF_LOCAL) {
 		const struct sockaddr_un *sun;
-		if (salen >= sizeof(*sun)) {
+		if (salen >= 0 && (size_t)salen >= sizeof(*sun)) {
 			sun = (const struct sockaddr_un *)sa;
 			if (unlink(sun->sun_path))
 				errno = 0; /* ignore error here */
@@ -1457,7 +1605,7 @@ static int vt_server_clean(const struct sockaddr *sa, int salen)
 
 static void vt_server_close(struct vt_server_entry *e)
 {
-	if (e->vse_sock) {
+	if (e->vse_sock >= 0) {
 		close(e->vse_sock);
 		e->vse_sock = -1;
 	}

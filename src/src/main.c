@@ -31,6 +31,8 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <sys/param.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <pthread.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -57,23 +59,30 @@
 #include "vt.h"
 #endif
 #include "tunnelctl.h"
+#include "statistics.h"
 
-static void sig_child(int unused)
+static void sig_child(__attribute__ ((unused)) int unused)
 {
 	int pid, status;
 
 	while ((pid = waitpid(0, &status, WNOHANG)) > 0);
 }
 
+extern void conf_apply_changes(struct mip6_config *cur,
+			       struct mip6_config *new);
+
 static void reinit(void)
 {
 	/* got SIGHUP, reread configuration and reinitialize */
 	dbg("got SIGHUP, reinitilize\n");
+	(void)conf_update(&conf, &conf_apply_changes);
 	return;
 }
 
 
 struct mip6_config conf;
+struct mip6_config *conf_parsed = NULL;
+struct mip6_stat mipl_stat;
 
 static void terminate(void)
 {
@@ -131,7 +140,7 @@ static void daemon_start(int ignsigcld)
 	}
 }
 
-static void *sigh(void *arg)
+static void *sigh(__attribute__ ((unused)) void *arg)
 {
 	int signum;
 	sigset_t sigcatch;
@@ -176,6 +185,10 @@ int main(int argc, char **argv)
 	sigset_t sigblock;
 	int logflags = 0;
 	int ret = 1;
+
+	/* gram.y stores configuration items in
+	 * conf_parsed, so point it to conf */
+	conf_parsed = &conf;
 
 	debug_init();
 
@@ -241,7 +254,8 @@ int main(int argc, char **argv)
 		goto icmp6_failed;
 	if (xfrm_init() < 0)
 		goto xfrm_failed;
-	cn_init();
+	if (cn_init() < 0)
+		goto cn_failed;
 	if ((is_ha() || is_mn()) && tunnelctl_init() < 0)
 		goto tunnelctl_failed;
 	if (is_ha() && ha_init() < 0) 
@@ -271,6 +285,7 @@ ha_failed:
 		tunnelctl_cleanup();
 tunnelctl_failed:
 	cn_cleanup();
+cn_failed:
 	xfrm_cleanup();
 xfrm_failed:
 	icmp6_cleanup();
@@ -289,6 +304,7 @@ debug_failed:
 #ifdef ENABLE_VT
 vt_failed:
 #endif
+	conf_free(&conf);
 	syslog(LOG_INFO, "%s v%s stopped (%s)", PACKAGE_NAME, PACKAGE_VERSION,
 	       entity_string[conf.mip6_entity]);
 	closelog();

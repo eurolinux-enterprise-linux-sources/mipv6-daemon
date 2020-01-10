@@ -5,44 +5,37 @@
 
 #include <net/if_arp.h>
 
-#define DAD_TIMEOUT 1 /* one second */
+#define DAD_TIMEOUT         1  /* one second */
+#define L2ADDR_MAX_SIZE     6  /* Max required size for supported L2 @ */
+#define MAP_L2ADDR_MAX_SIZE 6  /* Max required size for mapped @ format used
+				* in ND Src/Tgt Link-Layer Address option */
 
-static inline short nd_get_l2addr_len(unsigned short iface_type)
-{
-	switch (iface_type) {
-		/* supported physical devices */
-	case ARPHRD_ETHER:
-	case ARPHRD_IEEE802:
-	case ARPHRD_IEEE802_TR:
-	case ARPHRD_IEEE80211:
-	case ARPHRD_FDDI:
-		return 6;
-	case ARPHRD_ARCNET:
-		return 1;
-		/* supported virtual devices */
-	case ARPHRD_SIT:
-	case ARPHRD_TUNNEL6:
-	case ARPHRD_PPP:
-	case ARPHRD_IPGRE:
-		return 0;
-	default:
-		/* unsupported */
-		return -1;
-	}
-}
+short ndisc_get_l2addr_len(unsigned short iface_type);
+
+int ndisc_set_linklocal(struct in6_addr *lladdr, uint8_t *hwa,
+			unsigned short iface_type);
+
+int ndisc_l2addr_from_opt(unsigned short iface_type, uint8_t *hwa,
+			  uint8_t *mapped_addr, int mapped_addr_len);
+
+int ndisc_l2addr_to_opt(int ifindex, uint8_t *addr);
+
+int nd_get_iface_type(int ifindex);
 
 int ndisc_do_dad(int ifi, struct in6_addr *addr, int ll);
 
-int ndisc_send_rs(int ifindex, const struct in6_addr *src,
-		  const struct in6_addr *dst);
+int ndisc_send_rs(int ifindex, const struct in6_addr *dst,
+		  struct iovec *opts, size_t optslen);
 
-int ndisc_send_ns(int ifindex, const struct in6_addr *src, 
-		  const struct in6_addr *dst,
-		  const struct in6_addr *target);
+int ndisc_send_ns(int ifindex, const struct in6_addr *target);
 
 int ndisc_send_na(int ifindex, const struct in6_addr *src, 
 		  const struct in6_addr *dst,
 		  const struct in6_addr *target, uint32_t flags);
+
+void proxy_nd_iface_init(int ifindex);
+
+void proxy_nd_iface_cleanup(int ifindex);
 
 int proxy_nd_start(int ifindex, struct in6_addr *target, 
 		   struct in6_addr *src, int bu_flags);

@@ -51,13 +51,15 @@
 #include "conf.h"
 #include "bcache.h"
 #include "keygen.h"
+#include "prefix.h"
+#include "statistics.h"
 
 #define MH_DEBUG_LEVEL 1
 
 #if MH_DEBUG_LEVEL >= 1
 #define MDBG dbg
 #else
-#define MDBG(x...)
+#define MDBG(...)
 #endif
 
 struct sock {
@@ -75,6 +77,7 @@ int mh_opts_dup_ok[] = {
 	0, /* Alternate CoA */
 	0, /* Nonce Index */
 	0, /* Binding Auth Data */
+	1, /* Mobile Network Prefix */
 };
 
 #define __MH_SENTINEL (IP6_MH_TYPE_MAX + 1)
@@ -123,7 +126,7 @@ void mh_handler_dereg(uint8_t type, struct mh_handler *handler)
 	pthread_rwlock_unlock(&handler_lock);
 }
 
-static void *mh_listen(void *arg)
+static void *mh_listen(__attribute__ ((unused)) void *arg)
 {
 	uint8_t msg[MAX_PKT_LEN];
 	struct in6_pktinfo pktinfo;
@@ -142,9 +145,11 @@ static void *mh_listen(void *arg)
 		/* check if socket has closed */
 		if (len == -EBADF)
 			break;
+
 		/* common validity check */
-		if (len < sizeof(struct ip6_mh))
+		if (len < 0 || (size_t)len < sizeof(struct ip6_mh))
 			continue;
+
 		addrs.src = &addr.sin6_addr;
 		addrs.dst = &pktinfo.ipi6_addr;
 		if (!IN6_IS_ADDR_UNSPECIFIED(&haoa)) {
@@ -401,6 +406,46 @@ static int create_opt_pad(struct iovec *iov, int pad)
 	return 0;
 }
 
+int mh_create_opt_mob_net_prefix(struct iovec *iov, int mnp_count,
+				 struct list_head *mnps)
+{
+	int optlen = (mnp_count * sizeof(struct ip6_mh_opt_mob_net_prefix) +
+		      (mnp_count - 1) * sizeof(_pad4));
+	struct list_head *l;
+	int i = 0;
+	uint8_t *data;
+	iov->iov_base = malloc(optlen);
+	iov->iov_len = optlen;
+
+	if (iov->iov_base == NULL)
+		return -ENOMEM;
+
+	memset(iov->iov_base, 0, iov->iov_len);
+	data = (uint8_t *)iov->iov_base;
+
+	list_for_each(l, mnps) {
+		struct prefix_list_entry *p;
+		struct ip6_mh_opt_mob_net_prefix *mnp;
+
+		p = list_entry(l, struct prefix_list_entry, list);
+		mnp = (struct ip6_mh_opt_mob_net_prefix *)data;
+
+		mnp->ip6mnp_type = IP6_MHOPT_MOB_NET_PRFX;
+		mnp->ip6mnp_len = 18;
+		mnp->ip6mnp_prefix_len = p->ple_plen;
+		mnp->ip6mnp_prefix = p->ple_prefix;
+
+		data += sizeof(struct ip6_mh_opt_mob_net_prefix);
+
+		/* do internal padding here, so one iovec for MNPs is enough */
+		if (++i < mnp_count) {
+		  memcpy(data, _pad4, sizeof(_pad4));
+		  data += sizeof(_pad4);
+		}
+	}
+	return 0;
+}
+
 static size_t mh_length(struct iovec *vec, int count)
 {
 	size_t len = 0;
@@ -441,6 +486,9 @@ static int mh_try_pad(const struct iovec *in, struct iovec *out, int count)
 			break;
 		case IP6_MHOPT_BAUTH:
 			pad = optpad(8, 2, len); /* 8n+2 */
+			break;
+		case IP6_MHOPT_MOB_NET_PRFX:
+			pad = optpad(8, 4, len); /* 8n+4 */
 			break;
 		}
 		if (pad > 0) {
@@ -549,6 +597,7 @@ int mh_send(const struct in6_addr_bundle *addrs, const struct iovec *mh_vec,
 	int iov_count;
 	socklen_t rthlen = 0;
 
+	memset(iov, 0, (2*(IP6_MHOPT_MAX+1))*sizeof(struct iovec));
 	iov_count = mh_try_pad(mh_vec, iov, iovlen);
 	mh = (struct ip6_mh *)iov[0].iov_base;
 	mh->ip6mh_hdrlen = (mh_length(iov, iov_count) >> 3) - 1;
@@ -680,6 +729,7 @@ int mh_send(const struct in6_addr_bundle *addrs, const struct iovec *mh_vec,
 
 	free(msg.msg_control);
 
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_OUT_MH);
 	return ret;
 }
 
@@ -694,6 +744,8 @@ static int mh_opt_len_chk(uint8_t type, int len)
 		return len != sizeof(struct ip6_mh_opt_nonce_index);
 	case IP6_MHOPT_BAUTH:
 		return len != sizeof(struct ip6_mh_opt_auth_data);
+	case IP6_MHOPT_MOB_NET_PRFX:
+		return len != sizeof(struct ip6_mh_opt_mob_net_prefix);
 	case IP6_MHOPT_PADN:
 	default:
 		return 0;
@@ -734,10 +786,11 @@ int mh_opt_parse(const struct ip6_mh *mh, ssize_t len, ssize_t offset,
 			i++;
 			continue;
 		} 
-		if (left < sizeof(struct ip6_mh_opt) ||
+		if ((size_t)left < sizeof(struct ip6_mh_opt) ||
 		    mh_opt_len_chk(op->ip6mhopt_type, op->ip6mhopt_len + 2)) {
 			syslog(LOG_ERR,
-			       "Kernel failed to catch malformed Mobility Option type %d. Update kernel!",
+			       "Kernel failed to catch malformed Mobility"
+			       "Option type %d. Update kernel!",
 			       op->ip6mhopt_type);
 			return -EINVAL;
 		}
@@ -810,6 +863,8 @@ ssize_t mh_recv(unsigned char *msg, size_t msglen,
 	memset(haoaddr, 0, sizeof(*haoaddr));
 	memset(rtaddr, 0, sizeof(*rtaddr));
 
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_IN_MH);
+
 	for (cmsg = CMSG_FIRSTHDR(&mhdr); cmsg;
 	     cmsg = CMSG_NXTHDR(&mhdr, cmsg)) {
 		int ret = 0;
@@ -840,6 +895,7 @@ ssize_t mh_recv(unsigned char *msg, size_t msglen,
 					MDBG("Invalid rth\n");
 				else
 					*rtaddr = *seg;
+				statistics_inc(&mipl_stat, MIPL_STATISTICS_IN_RH2);
 			}
 			break;
 		}
@@ -868,6 +924,7 @@ ssize_t mh_recv(unsigned char *msg, size_t msglen,
 	/* No need to perform any other validity checks, since kernel
 	 * does this for us. */
 
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_IN_MH);
 	return len;
 }
 
@@ -896,10 +953,10 @@ void mh_send_be(struct in6_addr *dst, struct in6_addr *hoa,
 	out.dst = dst;
 	if (hoa)
 		be->ip6mhbe_homeaddr = *hoa;
-	out.dst = dst;
 
 	mh_send(&out, &iov, 1, NULL, iif);
 	free_iov_data(&iov, 1);
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_OUT_BE);
 }
 
 /* Check if binding has been used recently and send a binding refresh
@@ -933,6 +990,7 @@ void mh_send_brr(struct in6_addr *mn_addr, struct in6_addr *local)
 	
 	mh_send(&addrs, &mh_vec, 1, NULL, 0);
 	free_iov_data(&mh_vec, 1);
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_OUT_BRR);
 }
 
 void mh_send_ba(const struct in6_addr_bundle *addrs, uint8_t status,
@@ -943,7 +1001,7 @@ void mh_send_ba(const struct in6_addr_bundle *addrs, uint8_t status,
 	struct ip6_mh_binding_ack *ba;
 	struct iovec mh_vec[2];
 
-	MDBG("status %d\n", status);
+	MDBG("status %s (%d)\n", mh_ba_status_to_str(status), status);
 
 	ba = mh_create(mh_vec, IP6_MH_TYPE_BACK);
 	if (!ba)
@@ -967,24 +1025,24 @@ void mh_send_ba(const struct in6_addr_bundle *addrs, uint8_t status,
 		mh_create_opt_auth_data(&mh_vec[iovlen++]);
 	mh_send(addrs, mh_vec, iovlen, key, iif);
 	free_iov_data(mh_vec, iovlen);
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_OUT_BA);
 }
 
+/* Main BU parser, used by both HA (H flag set) and CN (H flag not set).
+ * Additional specific checks are performed for HA and CN via two
+ * specific helpers: ha_bu_check() (ha.c) and cn_bu_check() (cn.c). */
 int mh_bu_parse(struct ip6_mh_binding_update *bu, ssize_t len,
 		const struct in6_addr_bundle *in_addrs,
 		struct in6_addr_bundle *out_addrs,
 		struct mh_options *mh_opts,
-		struct timespec *lifetime, uint8_t *key)
+		struct timespec *lifetime)
 {
 	struct in6_addr *our_addr, *peer_addr, *remote_coa;
 	struct ip6_mh_opt_altcoa *alt_coa;
-	struct ip6_mh_opt_nonce_index *non_ind;
-	struct ip6_mh_opt_auth_data *bauth;
-	uint16_t bu_flags;
-	int ret;
 
 	MDBG("Binding Update Received\n");
-	if (len < sizeof(struct ip6_mh_binding_update) ||
-	    mh_opt_parse(&bu->ip6mhbu_hdr, len, 
+	if (len < 0 || (size_t)len < sizeof(struct ip6_mh_binding_update) ||
+	    mh_opt_parse(&bu->ip6mhbu_hdr, len,
 			 sizeof(struct ip6_mh_binding_update), mh_opts) < 0)
 		return -1;
 			 
@@ -1021,43 +1079,11 @@ int mh_bu_parse(struct ip6_mh_binding_update *bu, ssize_t len,
 	if (!out_addrs->bind_coa)
 		out_addrs->bind_coa = in_addrs->src;
 
-	bu_flags = bu->ip6mhbu_flags;
 	out_addrs->src = in_addrs->dst;
 	out_addrs->dst = in_addrs->src;
 	out_addrs->local_coa = NULL;
 
-	non_ind = mh_opt(&bu->ip6mhbu_hdr, mh_opts, IP6_MHOPT_NONCEID);
-
-	if (bu_flags & IP6_MH_BU_HOME)
-		return non_ind ? -1 : 0;
-
-	if (!non_ind)
-		return -1;
-
-	MDBG("src %x:%x:%x:%x:%x:%x:%x:%x\n", NIP6ADDR(peer_addr));
-	MDBG("coa %x:%x:%x:%x:%x:%x:%x:%x\n", 
-	     NIP6ADDR(out_addrs->bind_coa));
-
-	if (tsisset(*lifetime))
-		ret = rr_cn_calc_Kbm(ntohs(non_ind->ip6moni_home_nonce),
-				     ntohs(non_ind->ip6moni_coa_nonce),
-				     peer_addr, out_addrs->bind_coa, key);
-	else /* Only use home nonce and address for dereg. */
-		ret = rr_cn_calc_Kbm(ntohs(non_ind->ip6moni_home_nonce), 0,
-				     peer_addr, NULL, key);
-	if (ret)
-		return ret;
-
-	bauth = mh_opt(&bu->ip6mhbu_hdr, mh_opts, IP6_MHOPT_BAUTH);
-	if (!bauth)
-		return -1;
-	/* Authenticator is calculated with MH checksum set to 0 */
-	bu->ip6mhbu_hdr.ip6mh_cksum = 0;
-	if (mh_verify_auth_data(bu, len, bauth, 
-				out_addrs->bind_coa, our_addr, key) < 0)
-		return -1;
-	
-	return IP6_MH_BAS_ACCEPTED;
+	return 0;
 }
 
 void mh_cleanup(void)
@@ -1065,4 +1091,40 @@ void mh_cleanup(void)
 	close(mh_sock.fd);
 	pthread_cancel(mh_listener);
 	pthread_join(mh_listener, NULL);
+}
+
+/* based on http://www.iana.org/assignments/mobility-parameters (last
+ * updated 2008-10-10 version), but only for protocols we support, i.e.
+ * MIPv6 and NEMO. */
+static const char *mh_ba_status_str[256] = {
+	[IP6_MH_BAS_ACCEPTED]            = "Binding Update accepted",
+	[IP6_MH_BAS_PRFX_DISCOV]         = "Accepted but prefix discovery necessary",
+	[IP6_MH_BAS_UNSPECIFIED]         = "Reason unspecified",
+	[IP6_MH_BAS_PROHIBIT]            = "Administratively prohibited",
+	[IP6_MH_BAS_INSUFFICIENT]        = "Insufficient resources",
+	[IP6_MH_BAS_HA_NOT_SUPPORTED]    = "Home registration not supported",
+	[IP6_MH_BAS_NOT_HOME_SUBNET]     = "Not home subnet",
+	[IP6_MH_BAS_NOT_HA]              = "Not home agent for this mobile node",
+	[IP6_MH_BAS_DAD_FAILED]          = "Duplicate Address Detection failed",
+	[IP6_MH_BAS_SEQNO_BAD]           = "Sequence number out of window",
+	[IP6_MH_BAS_HOME_NI_EXPIRED]     = "Expired home nonce index",
+	[IP6_MH_BAS_COA_NI_EXPIRED]      = "Expired care-of nonce index",
+	[IP6_MH_BAS_NI_EXPIRED]          = "Expired nonces",
+	[IP6_MH_BAS_REG_NOT_ALLOWED]     = "Registration type change disallowed",
+	[IP6_MH_BAS_MR_OP_NOT_PERMITTED] = "Mobile Router Operation not permitted",
+	[IP6_MH_BAS_INVAL_PRFX]          = "Invalid Prefix",
+	[IP6_MH_BAS_NOT_AUTH_FOR_PRFX]   = "Not Authorized for Prefix",
+	[IP6_MH_BAS_FWDING_FAILED]       = "Forwarding Setup failed",
+};
+
+const char *mh_ba_status_to_str(int status)
+{
+	static char unknown[] = "unknown by UMIP";
+	const char *s;
+
+	s = mh_ba_status_str[status];
+	if (s == NULL)
+		s = unknown;
+
+	return s;
 }

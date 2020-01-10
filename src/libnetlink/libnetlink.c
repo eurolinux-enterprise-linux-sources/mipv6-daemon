@@ -185,13 +185,22 @@ int rtnl_dump_filter(struct rtnl_handle *rth,
 			continue;
 		}
 
+		/* Everyone can send empty messages which will led to
+		 * status == 0. Before checking if status == 0, check
+		 * the origin. Here, we only allow messages from kernel.
+		 * --arno */
+		if (nladdr.nl_pid != 0) {
+			NLDBG("Dropping non-kernel Netlink message.\n");
+			continue;
+		}
+
 		if (status == 0) {
 			NLDBG("EOF on netlink\n");
 			return -1;
 		}
 
 		h = (struct nlmsghdr*)buf;
-		while (NLMSG_OK(h, status)) {
+		while (status > 0 && NLMSG_OK(h, (size_t)status)) {
 			int err;
 
 			if (nladdr.nl_pid != 0 ||
@@ -287,15 +296,26 @@ int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
 			NLDBG_SYS("OVERRUN");
 			continue;
 		}
-		if (status == 0) {
-			NLDBG("EOF on netlink\n");
-			return -1;
-		}
+
 		if (msg.msg_namelen != sizeof(nladdr)) {
 			NLDBG("sender address length == %d\n", msg.msg_namelen);
 			return -2;
 		}
-		for (h = (struct nlmsghdr*)buf; status >= sizeof(*h); ) {
+		/* Everyone can send empty messages which will led to
+		 * status == 0. Before checking if status == 0, check
+		 * the origin. --arno */
+		if (nladdr.nl_pid != (__u32)peer) {
+			NLDBG("Received Netlink message from unknown peer.\n");
+			continue;
+		}
+
+		if (status == 0) {
+			NLDBG("EOF on netlink\n");
+			return -1;
+		}
+
+		for (h = (struct nlmsghdr*)buf;
+		     status > 0 && (size_t)status >= sizeof(*h); ) {
 			int err;
 			int len = h->nlmsg_len;
 			int l = len - sizeof(*h);
@@ -309,7 +329,7 @@ int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
 				return -2;
 			}
 
-			if (nladdr.nl_pid != peer ||
+			if (nladdr.nl_pid != (__u32)peer ||
 			    h->nlmsg_pid != rtnl->local.nl_pid ||
 			    h->nlmsg_seq != seq) {
 				if (junk) {
@@ -325,7 +345,7 @@ int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n, pid_t peer,
 
 			if (h->nlmsg_type == NLMSG_ERROR) {
 				struct nlmsgerr *err = (struct nlmsgerr*)NLMSG_DATA(h);
-				if (l < sizeof(struct nlmsgerr)) {
+				if ((size_t)l < sizeof(struct nlmsgerr)) {
 					NLDBG("ERROR truncated\n");
 				} else {
 					errno = -err->error;
@@ -391,15 +411,25 @@ int rtnl_listen(struct rtnl_handle *rtnl,
 			NLDBG_SYS("OVERRUN");
 			continue;
 		}
-		if (status == 0) {
-			NLDBG("EOF on netlink\n");
-			return -1;
-		}
 		if (msg.msg_namelen != sizeof(nladdr)) {
 			NLDBG("Sender address length == %d\n", msg.msg_namelen);
 			return -2;
 		}
-		for (h = (struct nlmsghdr*)buf; status >= sizeof(*h); ) {
+		/* Everyone can send empty messages which will led to
+		 * status == 0. Before checking if status == 0, check
+		 * the origin. Here, we only allow messages from kernel.
+		 * --arno */
+		if (nladdr.nl_pid != 0) {
+			NLDBG("Dropping non-kernel Netlink message.\n");
+			continue;
+		}
+
+		if (status == 0) {
+			NLDBG("EOF on netlink\n");
+			return -1;
+		}
+		for (h = (struct nlmsghdr*)buf;
+		     status > 0 && (size_t)status >= sizeof(*h); ) {
 			int err;
 			int len = h->nlmsg_len;
 			int l = len - sizeof(*h);
@@ -435,7 +465,7 @@ int addattr32(struct nlmsghdr *n, int maxlen, int type, __u32 data)
 {
 	int len = RTA_LENGTH(4);
 	struct rtattr *rta;
-	if (NLMSG_ALIGN(n->nlmsg_len) + len > maxlen) {
+	if (NLMSG_ALIGN(n->nlmsg_len) + len > (unsigned int)maxlen) {
 		NLDBG("addattr32: Error! max allowed bound %d exceeded\n",maxlen);
 		return -1;
 	}
@@ -453,7 +483,7 @@ int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,
 	int len = RTA_LENGTH(alen);
 	struct rtattr *rta;
 
-	if (NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len) > maxlen) {
+	if (NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len) > (unsigned int)maxlen) {
 		NLDBG("addattr_l ERROR: message exceeded bound of %d\n",maxlen);
 		return -1;
 	}
@@ -467,7 +497,7 @@ int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,
 
 int addraw_l(struct nlmsghdr *n, int maxlen, const void *data, int len)
 {
-	if (NLMSG_ALIGN(n->nlmsg_len) + NLMSG_ALIGN(len) > maxlen) {
+	if (NLMSG_ALIGN(n->nlmsg_len) + NLMSG_ALIGN(len) > (unsigned int)maxlen) {
 		NLDBG("addraw_l ERROR: message exceeded bound of %d\n",maxlen);
 		return -1;
 	}
@@ -521,8 +551,9 @@ int parse_rtattr(struct rtattr *tb[], int max, struct rtattr *rta, int len)
 			tb[rta->rta_type] = rta;
 		rta = RTA_NEXT(rta,len);
 	}
-	if (len)
+	if (len) {
 		NLDBG("!!!Deficit %d, rta_len=%d\n", len, rta->rta_len);
+	}
 	return 0;
 }
 
@@ -536,7 +567,8 @@ int parse_rtattr_byindex(struct rtattr *tb[], int max, struct rtattr *rta, int l
 			tb[i++] = rta;
 		rta = RTA_NEXT(rta,len);
 	}
-	if (len)
+	if (len) {
 		NLDBG("!!!Deficit %d, rta_len=%d\n", len, rta->rta_len);
+	}
 	return i;
 }

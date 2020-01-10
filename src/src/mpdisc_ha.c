@@ -47,6 +47,7 @@
 #include "ha.h"
 #include "ndisc.h"
 #include "hash.h"
+#include "statistics.h"
 
 struct mpa_entry {
 	struct in6_addr ha;
@@ -206,6 +207,7 @@ static void mpd_send_mpa(struct mpa_entry *e, uint16_t id)
 	icmp6_send(iface->ifindex, 0, &e->ha, &e->hoa, iov, 2);
 	free_iov_data(iov, 2);
 	e->lastsent = now;
+	statistics_inc(&mipl_stat, MIPL_STATISTICS_OUT_MPA);
 }
 
 void mpd_cancel_mpa(const struct in6_addr *ha, const struct in6_addr *hoa)
@@ -252,9 +254,12 @@ out:
 
 }
 
-static void mpd_recv_mps(const struct icmp6_hdr *ih, ssize_t len,
+static void mpd_recv_mps(const struct icmp6_hdr *ih,
+			 __attribute__ ((unused)) ssize_t len,
 			 const struct in6_addr *src, 
-			 const struct in6_addr *dst, int iif, int hoplimit)
+			 const struct in6_addr *dst,
+			 __attribute__ ((unused)) int iif,
+			 __attribute__ ((unused)) int hoplimit)
 {
 	struct mpa_entry *e;
 
@@ -307,12 +312,12 @@ int mpd_prefix_check(struct in6_addr *dst,
 				/* decrease DAD timeout */
 				valid -= DAD_TIMEOUT;
 			}
-			if (preferred <= lft->tv_sec)
+			if (preferred <= (unsigned long)lft->tv_sec)
 				res = IP6_MH_BAS_PRFX_DISCOV;
 			else
 				res = IP6_MH_BAS_ACCEPTED;
 
-			if (valid < lft->tv_sec)
+			if (valid < (unsigned long)lft->tv_sec)
 				tssetsec(*lft,
 					 umin(valid, MAX_BINDING_LIFETIME));
 			*ifindex = i->ifindex;
@@ -384,7 +389,7 @@ static void mpd_schedule_unsol_mpa_send(struct mpa_entry *e,
 	    tsisset(e->lastsent)) {
 		struct timespec diff;
 		tssub(ple->timestamp, e->lastsent, diff);
-		if (diff.tv_sec < conf.MaxMobPfxAdvInterval)
+		if ((unsigned long)diff.tv_sec < conf.MaxMobPfxAdvInterval)
 			return;
 	}
 	mpd_rand_adv_delay(&tmp, ple->ple_prefd_time);
@@ -546,6 +551,19 @@ void mpd_del_expired_pinfos(struct ha_interface *i)
 			e->ple_valid_time = 0;
 			e->ple_prefd_time = 0;
 		}
+	}
+	pthread_rwlock_unlock(&prefix_lock);
+}
+
+void mdp_del_pinfo(struct ha_interface *i)
+{
+        struct list_head *l, *n;
+
+	pthread_rwlock_wrlock(&prefix_lock);
+	list_for_each_safe(l, n, &i->prefix_list) {
+		list_del(l);
+		free(list_entry(l, struct prefix_list_entry, list));
+		i->prefix_count--;
 	}
 	pthread_rwlock_unlock(&prefix_lock);
 }

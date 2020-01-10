@@ -35,6 +35,7 @@
 #include "bul.h"
 #include "mn.h"
 #include "util.h"
+#include "conf.h"
 #include "xfrm.h"
 #include "debug.h"
 #include "retrout.h"
@@ -103,9 +104,11 @@ void dump_bule(void *bule, void *os)
 	if (e->flags & IP6_MH_BU_ACK)
 		fprintf(out, "IP6_MH_BU_ACK ");
 	if (e->flags & IP6_MH_BU_LLOCAL)
-		fprintf(out, "IP6_MH_BU_LLOCAL");
+		fprintf(out, "IP6_MH_BU_LLOCAL ");
 	if (e->flags & IP6_MH_BU_KEYM)
-		fprintf(out, "IP6_MH_BU_KEYM");
+		fprintf(out, "IP6_MH_BU_KEYM ");
+	if (e->flags & IP6_MH_BU_MR)
+		fprintf(out, "IP6_MH_BU_MR");
 
 	fprintf(out, "\n");
 	fflush(out);
@@ -184,7 +187,8 @@ int bul_add(struct bulentry *bule)
 			goto home_bul_free;
 	} else if (bule->type == NON_MIP_CN_ENTRY) {
 		if (bule->flags & IP6_MH_BU_HOME) {
-			if (xfrm_block_hoa(hai) < 0)
+			if (xfrm_block_hoa(hai) < 0 ||
+			    (hai->mob_rtr && xfrm_block_ra(hai) < 0))
 				goto home_bul_free;
 		}
 	}
@@ -231,6 +235,12 @@ void bul_delete(struct bulentry *bule)
 				xfrm_unblock_link(hai);
 			if (hai->home_block & HOME_ADDR_BLOCK)
 				xfrm_unblock_hoa(hai);
+			if (hai->home_block & NEMO_RA_BLOCK)
+				xfrm_unblock_ra(hai);
+			if (hai->home_block & NEMO_FWD_BLOCK)
+				xfrm_unblock_fwd(hai);
+			if (conf.MnResetDhaadAtHome && hai->use_dhaad)
+				hai->ha_addr = in6addr_any;
 		}
 	}
 	while (bule->ext_cleanup)
