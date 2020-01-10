@@ -1,7 +1,7 @@
 Name:		mipv6-daemon
 Epoch:		2
 Version:	1.0
-Release:	1%{?dist}
+Release:	3%{?dist}
 Summary:	Mobile IPv6 (MIPv6) Daemon
 
 Group:		System Environment/Daemons
@@ -101,6 +101,12 @@ rm -rf $RPM_BUILD_ROOT
 %{_mandir}/man7/*
 
 %changelog
+* Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 2:1.0-3
+- Mass rebuild 2014-01-24
+
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 2:1.0-2
+- Mass rebuild 2013-12-27
+
 * Tue Jul 02 2013 Thomas Graf <tgraf@redhat.com> - 1.0-2
 - Update to umip 1.0
 
