@@ -140,7 +140,7 @@ int proxy_nd_start(int ifindex, struct in6_addr *target,
 	}
 	if (!err) {
 		uint32_t na_flags = (ND_NA_FLAG_OVERRIDE |
-							 (nd_flags ? ND_NA_FLAG_ROUTER : 0));
+				     nd_flags ? ND_NA_FLAG_ROUTER : 0);
 
 		ndisc_send_na(ifindex, src, &in6addr_all_nodes_mc,
 			      target, na_flags);
@@ -472,7 +472,6 @@ static int ndisc_send_unspec(int oif, const struct in6_addr *dest,
 	iov.iov_len = sizeof(frame.ip) + datalen;
 
 	dst.sin6_family = AF_INET6;
-	memset(&msgh, 0, sizeof(msgh));
 	msgh.msg_name = &dst;
 	msgh.msg_namelen = sizeof(dst);
 	msgh.msg_iov = &iov;

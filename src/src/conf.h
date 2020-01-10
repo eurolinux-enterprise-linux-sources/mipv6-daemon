@@ -33,13 +33,9 @@ struct mip6_config {
 	unsigned int MnMaxHaBindingLife;
 	unsigned int MnMaxCnBindingLife;
 	unsigned int MnRouterProbes;
-	unsigned int MnMaxCnConsecutiveResends;
-	unsigned int MnMaxHaConsecutiveResends;
 	struct timespec MnRouterProbeTimeout_ts;
 	struct timespec InitialBindackTimeoutFirstReg_ts;
 	struct timespec InitialBindackTimeoutReReg_ts;
-	struct timespec InitialSolicitTimer_ts;
-	struct timespec InterfaceInitialInitDelay_ts;
 	struct list_head home_addrs;
 	char *MoveModulePath;
 	uint16_t CnBuAck;
@@ -47,11 +43,8 @@ struct mip6_config {
 	char DoRouteOptimizationMN;
 	char MnUseAllInterfaces;
 	char MnDiscardHaParamProb;
-	char MnResetDhaadAtHome;
-	char MnFlushAllAtHome;
 	char SendMobPfxSols;
 	char OptimisticHandoff;
-	char NoHomeReturn;
 
 	/* HA options */
 	char HaAcceptMobRtr;
@@ -64,7 +57,6 @@ struct mip6_config {
 
 	/* CN options */
 	char DoRouteOptimizationCN;
-	struct list_head cn_binding_pol;
 };
 
 struct net_iface {
@@ -78,7 +70,6 @@ struct net_iface {
 };
 
 extern struct mip6_config conf;
-extern struct mip6_config *conf_parsed;
 
 #define MIP6_ENTITY_NO -1
 #define MIP6_ENTITY_CN 0
@@ -129,15 +120,8 @@ int conf_parse(struct mip6_config *c, int argc, char **argv);
 
 void conf_show(struct mip6_config *c);
 
-void conf_free(struct mip6_config *c);
-
-int conf_update(struct mip6_config *c,
-		void (*apply_changes_cb)(struct mip6_config *,
-					 struct mip6_config *));
-
 int yyparse(void);
 
 int yylex(void);
-int yylex_destroy(void);
 
 #endif

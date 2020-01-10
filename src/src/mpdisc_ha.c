@@ -555,19 +555,6 @@ void mpd_del_expired_pinfos(struct ha_interface *i)
 	pthread_rwlock_unlock(&prefix_lock);
 }
 
-void mdp_del_pinfo(struct ha_interface *i)
-{
-        struct list_head *l, *n;
-
-	pthread_rwlock_wrlock(&prefix_lock);
-	list_for_each_safe(l, n, &i->prefix_list) {
-		list_del(l);
-		free(list_entry(l, struct prefix_list_entry, list));
-		i->prefix_count--;
-	}
-	pthread_rwlock_unlock(&prefix_lock);
-}
-
 int mpd_ha_init(void)
 {
 	pthread_mutexattr_t mattrs;

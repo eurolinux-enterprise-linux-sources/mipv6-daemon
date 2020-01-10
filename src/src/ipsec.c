@@ -140,7 +140,7 @@ static void _set_sp(struct xfrm_userpolicy_info *sp,
 		sp->priority = MIP6_PRIO_RO_SIG_RR;
 		break;
 	case IPSEC_POLICY_TYPE_TUNNELPAYLOAD:
-		sp->priority = MIP6_PRIO_NO_RO_DATA;
+		sp->priority = MIP6_PRIO_RO_SIG_RR;
 		break;
 
 		/* Transport */
@@ -269,7 +269,6 @@ static int xfrm_sendmigrate(struct xfrm_userpolicy_info *sp,
 
 	memset(&req, 0, sizeof(req));
 	memset(&um, 0, sizeof(um));
-	memset(&kma, 0, sizeof(kma));
 
 	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(req.xpid));
 	req.n.nlmsg_flags = NLM_F_REQUEST;
@@ -439,7 +438,7 @@ int ipsec_policy_entry_check(const struct in6_addr *haaddr,
 	struct list_head *lp;
 	int ret = 0;
 
-	list_for_each(lp, &conf_parsed->ipsec_policies) {
+	list_for_each(lp, &conf.ipsec_policies) {
 		struct ipsec_policy_entry *e;
 
 		e = list_entry(lp, struct ipsec_policy_entry, list);

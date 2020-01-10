@@ -1,17 +1,16 @@
 Name:		mipv6-daemon
-Epoch:		2
-Version:	1.0
-Release:	2%{?dist}
+Version:	2.0.2.20110203bgit
+Release:	1%{?dist}
 Summary:	Mobile IPv6 (MIPv6) Daemon
 
 Group:		System Environment/Daemons
 License:	GPLv2
 URL:		http://www.umip.org/
-Source0:	http://people.redhat.com/tgraf/mipv6-daemon/mipv6-daemon-%{version}.tar.gz
+Source0:	http://www.infradead.org/~tgr/mip6d/mipv6-daemon-%{version}.tar.gz
 Source1:	mip6d.init
 Source2:	mip6d.sysconfig
 Source3:	mip6d.conf
-Patch1: 0001-rh804124_write_garbage_to_netlink_socket.patch
+#Patch0:	foo.patch
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
 BuildRequires:	flex bison indent
@@ -22,9 +21,8 @@ The mobile IPv6 daemon allows nodes to remain
 reachable while moving around in the IPv6 Internet.
 
 %prep
-%setup -q -n umip-%{version}
-
-%patch1 -p1 -b .0001-rh804124_write_garbage_to_netlink_socket.orig
+%setup -q -n %{name}-%{version}
+#%patch0 -p1
 
 %build
 %configure
@@ -70,11 +68,6 @@ fi
 %{_mandir}/man7/*
 
 %changelog
-* Fri Jul 18 2014 Thomas Haller <thaller@redhat.com> - 2:1.0-2
-* fix writing garbage to netlink socket (rh #804124)
-
-* Wed May 7 2014 Thomas Graf <tgraf@redhat.com> - 2:1.0-1
-- Update to umip 1.0
 * Thu Feb 03 2011 Thomas Graf <tgraf at, redhat.com> 2.0.2.20100203bgit-1
 - Move to umip.org codebase (head: 6232b73e869a589a9eea22653929ab670eb0c6bb)
 * Thu Jul 15 2010 Thomas Graf <tgraf at, redhat.com> 0.4-5
@@ -89,5 +82,5 @@ fi
     - Only start/stop daemon if not already running/stopped
 * Thu May 20 2010 Thomas Graf <tgraf at, redhat.com> 0.4-3
 - Inclusion of NEPL patch (NEMO support)
-* Mon Aug 17 2009 Thomas Graf <tgraf at, redhat.com> 0.4-1
+* Tue Aug 17 2009 Thomas Graf <tgraf at, redhat.com> 0.4-1
 - initial package release

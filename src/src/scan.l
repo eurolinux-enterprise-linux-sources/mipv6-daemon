@@ -234,13 +234,10 @@ DebugLevel			{ return DEBUGLEVEL; }
 DebugLogFile			{ return DEBUGLOGFILE; }
 DoRouteOptimizationCN		{ return DOROUTEOPTIMIZATIONCN; }
 DoRouteOptimizationMN		{ return DOROUTEOPTIMIZATIONMN; }
-CnBindingPolicySet		{ return CNBINDINGPOLICYSET; }
 HomeAddress			{ return HOMEADDRESS; }
 HomeAgentAddress		{ return HOMEAGENTADDRESS; }
 InitialBindackTimeoutFirstReg	{ return INITIALBINDACKTIMEOUTFIRSTREG; }
 InitialBindackTimeoutReReg	{ return INITIALBINDACKTIMEOUTREREG; }
-InitialSolicitTimer		{ return INITIALSOLICITTIMER; }
-InterfaceInitialInitDelay	{ return INTERFACEINITIALINITDELAY; }
 LinkName			{ return LINKNAME; }
 HaMaxBindingLife		{ return HAMAXBINDINGLIFE; }
 MnMaxHaBindingLife		{ return MNMAXHABINDINGLIFE; }
@@ -285,12 +282,7 @@ MnUseAllInterfaces     		{ return MNUSEALLINTERFACES; }
 MnRouterProbes			{ return MNROUTERPROBES; }
 MnRouterProbeTimeout		{ return MNROUTERPROBETIMEOUT; }
 MnDiscardHaParamProb		{ return MNDISCARDHAPARAMPROB; }
-MnResetDhaadAtHome		{ return MNRESETDHAADATHOME; }
-MnFlushAllAtHome		{ return MNFLUSHALLATHOME; }
-MnMaxHaConsecutiveResends	{ return MNMAXHACONSECUTIVERESENDS; }
-MnMaxCnConsecutiveResends	{ return MNMAXCNCONSECUTIVERESENDS; }
 OptimisticHandoff		{ return OPTIMISTICHANDOFF; }
-NoHomeReturn                    { return NOHOMERETURN; }
 HaAcceptMobRtr   		{ return HAACCEPTMOBRTR; }
 IsMobRtr       			{ return ISMOBRTR; }
 HaServedPrefix       	       	{ return HASERVEDPREFIX; }

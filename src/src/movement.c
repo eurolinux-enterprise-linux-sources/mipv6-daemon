@@ -90,16 +90,11 @@ static unsigned int adv_ivals_dad_limit = 3;
 
 static int nud_expire_rtr = 1;
 
-static int md_movements_disabled = 1; /* see md_start() */
-
 static void __md_trigger_movement_event(int event_type, int data,
 					struct md_inet6_iface *iface,
 					struct md_coa *coa)
 {
 	struct movement_event e;
-
-	if (md_movements_disabled)
-		return;
 
 	memset(&e, 0, sizeof(struct movement_event));
 	e.md_strategy = (conf.MnRouterProbes > 0 ? 
@@ -110,11 +105,10 @@ static void __md_trigger_movement_event(int event_type, int data,
 	e.iface = iface;
 	e.coa = coa;
 
-	MDBG2("strategy %d type %d iface %s (%d) "
+	MDBG2("strategy %d type %d iface %s (%d) " 	
 	      "CoA %x:%x:%x:%x:%x:%x:%x:%x\n",
 	      e.md_strategy, e.event_type,
-	      e.iface ? e.iface->name : "none",
-	      e.iface ? e.iface->ifindex : 0,
+	      e.iface->name, e.iface->ifindex, 
 	      NIP6ADDR(e.coa ? &e.coa->addr : &in6addr_any));
 
 	mn_movement_event(&e);
@@ -1321,7 +1315,7 @@ static void md_probe_router(struct md_router *rtr)
 		struct in6_addr *rtr_addr = md_get_rtr_addr(rtr);
 		struct timespec expires;
 
-		MDBG2("perform NUD for router "
+		MDBG2("preform NUD for router "
 		      "%x:%x:%x:%x:%x:%x:%x:%x on interface %s (%d)\n", 
 		      NIP6ADDR(&rtr->lladdr), rtr->iface->name,
 		      rtr->iface->ifindex);
@@ -1514,7 +1508,7 @@ static void md_update_router_stats(struct md_router *rtr)
 	if ((iface = md_get_inet6_iface(&ifaces, rtr->ifindex)) == NULL)
 		MDBG2("Router we are inserting a route for is "
 		      "reachable via an unknown interface (%d)\n",
-		      rtr->ifindex);
+		      ifi->ifi_index);
 	else
 		iface_pref = iface->preference;
 
@@ -2058,45 +2052,9 @@ int md_start(void)
 {
 	icmp6_handler_reg(ND_NEIGHBOR_ADVERT, &md_na_handler);
 	icmp6_handler_reg(ND_ROUTER_ADVERT, &md_ra_handler);
-
-	/* At startup, internal structures are initialized below by
-	 * iterating on information returned by netlink. For tunnel
-	 * interfaces, CoA are learned. For non-tunnel interfaces,
-	 * RS are sent and RA received (asynchronously). Simply put,
-	 * a lot of interfaces/CoA may appear in a short timeframe
-	 * which may result in UMIP changing its mind and switching
-	 * between those. Because we are usually not in a rush at
-	 * startup, it's better to wait for things to calm down and
-	 * for all options to be available before deciding which
-	 * iface/CoA to use. This is particularly true when dynamic
-	 * keying (IKE) is used because changing CoA in the middle
-	 * of the negotiation is a bad idea.
-	 * By having md_movements_disabled set to a non-zero value,
-	 * __md_trigger_movement_event() prevents movements to occur.
-	 * After a the expected delay, md_movements_disabled is set
-	 * reset to 0 and a movement is forced so that the best
-	 * interface gets selected at that point. --arno */
-	if (!tsisset(conf.InterfaceInitialInitDelay_ts))
-		md_movements_disabled = 0;
-
 	if (pthread_create(&md_listener, NULL, md_nl_listen, NULL))
 		return -1;
-
 	inet6_ifaces_iterate(process_nlmsg, NULL);
-
-	if (md_movements_disabled) { /* Delay loop */
-		struct timespec req, rem;
-		tscpy(req, conf.InterfaceInitialInitDelay_ts);
-		while (nanosleep(&req, &rem)) {
-			tscpy(req, rem);
-		}
-		md_movements_disabled = 0;
-	}
-
-	pthread_mutex_lock(&iface_lock);
-	__md_trigger_movement_event(ME_INIT, 0, NULL, NULL);
-	pthread_mutex_unlock(&iface_lock);
-
 	return 0;
 }
 

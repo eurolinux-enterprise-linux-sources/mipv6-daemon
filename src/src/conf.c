@@ -46,11 +46,6 @@
 #include "debug.h"
 #include "util.h"
 #include "mipv6.h"
-#include "mn.h"
-#include "cn.h"
-#include "xfrm.h"
-#include "prefix.h"
-#include "ipsec.h"
 #ifdef ENABLE_VT
 #include "vt.h"
 #endif
@@ -123,9 +118,6 @@ static int conf_file(struct mip6_config *c, char *filename)
 	ret = yyparse();
 
 	fclose(yyin);
-
-	/* Free memory allocated by yyparse() */
-	yylex_destroy();
 
 	if (ret) return -EINVAL;
 
@@ -203,7 +195,7 @@ static void conf_default(struct mip6_config *c)
 	c->vt_service = VT_DEFAULT_SERVICE;
 #endif
 	c->mip6_entity = MIP6_ENTITY_CN;
-	pmgr_init(NULL, &c->pmgr);
+	pmgr_init(NULL, &conf.pmgr);
 	INIT_LIST_HEAD(&c->net_ifaces);
 	INIT_LIST_HEAD(&c->bind_acl);
 	c->DefaultBindingAclPolicy = IP6_MH_BAS_ACCEPTED;
@@ -217,19 +209,12 @@ static void conf_default(struct mip6_config *c)
 	c->MnMaxCnBindingLife = MAX_RR_BINDING_LIFETIME;
 	tssetdsec(c->InitialBindackTimeoutFirstReg_ts, 1.5);/*seconds*/
 	tssetsec(c->InitialBindackTimeoutReReg_ts, INITIAL_BINDACK_TIMEOUT);/*seconds*/
-	tssetsec(c->InitialSolicitTimer_ts, INITIAL_SOLICIT_TIMER);/*seconds*/
-	tssetsec(c->InterfaceInitialInitDelay_ts, 2); /*seconds*/
 	INIT_LIST_HEAD(&c->home_addrs);
 	c->MoveModulePath = NULL; /* internal */
 	c->DoRouteOptimizationMN = 1;
 	c->MobRtrUseExplicitMode = 1;
 	c->SendMobPfxSols = 1;
 	c->OptimisticHandoff = 0;
-	c->NoHomeReturn = 0;
-	c->MnResetDhaadAtHome = 0;
-	c->MnFlushAllAtHome = 0;
-	c->MnMaxCnConsecutiveResends = 0;
-	c->MnMaxHaConsecutiveResends = 5;
 
 	/* HA options */
 	c->SendMobPfxAdvs = 1;
@@ -241,7 +226,6 @@ static void conf_default(struct mip6_config *c)
 
 	/* CN bindings */
 	c->DoRouteOptimizationCN = 1;
-	INIT_LIST_HEAD(&c->cn_binding_pol);
 }
 
 int conf_parse(struct mip6_config *c, int argc, char **argv)
@@ -281,214 +265,60 @@ int conf_parse(struct mip6_config *c, int argc, char **argv)
 
 void conf_show(struct mip6_config *c)
 {
-	struct list_head *list;
-
 	/* Common options */
-	dbg("Configuration file = %s\n", c->config_file);
+	dbg("config_file = %s\n", c->config_file);
 #ifdef ENABLE_VT
-	dbg("VT hostname = %s\n", c->vt_hostname);
-	dbg("VT service = %s\n", c->vt_service);
+	dbg("vt_hostname = %s\n", c->vt_hostname);
+	dbg("vt_service = %s\n", c->vt_service);
 #endif
-	dbg("NodeConfig = %u\n", c->mip6_entity);
-	dbg("DebugLevel = %u\n", c->debug_level);
-	dbg("DebugLogFile = %s\n",
-	    (c->debug_log_file ? c->debug_log_file : "stderr"));
-	dbg("DoRouteOptimizationCN = %s\n",
-	    CONF_BOOL_STR(c->DoRouteOptimizationCN));
-	list_for_each(list, &c->cn_binding_pol) {
-		struct cn_binding_pol_entry *pol;
-		pol = list_entry(list, struct cn_binding_pol_entry, list);
-		dbg("CnBindingPolicySet %x:%x:%x:%x:%x:%x:%x:%x "
-		    "%x:%x:%x:%x:%x:%x:%x:%x %s\n",
-		    NIP6ADDR(&pol->remote_hoa),
-		    NIP6ADDR(&pol->local_addr),
-		    pol->bind_policy ? "enabled" : "disabled" );
-	}
-
-	dbg("NonVolatileBindingCache = %s\n",
-	    CONF_BOOL_STR(c->NonVolatileBindingCache));
+	dbg("mip6_entity = %u\n", c->mip6_entity);
+	dbg("debug_level = %u\n", c->debug_level);
+	dbg("debug_log_file = %s\n", (c->debug_log_file ? c->debug_log_file :
+				      "stderr"));
 	if (c->pmgr.so_path)
 		dbg("PolicyModulePath = %s\n", c->pmgr.so_path);
+	dbg("DefaultBindingAclPolicy = %u\n", c->DefaultBindingAclPolicy);
+	dbg("NonVolatileBindingCache = %s\n",
+	    CONF_BOOL_STR(c->NonVolatileBindingCache));
 	
 	/* IPsec options */
 	dbg("KeyMngMobCapability = %s\n",
 	    CONF_BOOL_STR(c->KeyMngMobCapability));
 	dbg("UseMnHaIPsec = %s\n", CONF_BOOL_STR(c->UseMnHaIPsec));
 
-	switch (c->mip6_entity) {
-		case MIP6_ENTITY_MN:
-		/* MN options */
-		dbg("MnMaxHaBindingLife = %u\n", c->MnMaxHaBindingLife);
-		dbg("MnMaxCnBindingLife = %u\n", c->MnMaxCnBindingLife);
-		dbg("MnDiscardHaParamProb = %s\n",
-		    CONF_BOOL_STR(c->MnDiscardHaParamProb));
-		dbg("MnResetDhaadAtHome = %s\n",
-		    CONF_BOOL_STR(c->MnResetDhaadAtHome));
-		dbg("MnFlushAllAtHome = %s\n",
-		    CONF_BOOL_STR(c->MnFlushAllAtHome));
-		dbg("MnMaxHaConsecutiveResends = %u\n",
-		    c->MnMaxHaConsecutiveResends);
-		dbg("MnMaxCnConsecutiveResends = %u\n",
-		    c->MnMaxCnConsecutiveResends);
-		dbg("SendMobPfxSols = %s\n",
-		    CONF_BOOL_STR(c->SendMobPfxSols));
-		dbg("DoRouteOptimizationMN = %s\n",
-		    CONF_BOOL_STR(c->DoRouteOptimizationMN));
-		dbg("MnUseAllInterfaces = %s\n",
-		    CONF_BOOL_STR(c->MnUseAllInterfaces));
-		dbg("UseCnBuAck = %s\n", CONF_BOOL_STR(c->CnBuAck));
-		dbg("InterfaceInitialInitDelay = %f\n",
-		    tstodsec(c->InterfaceInitialInitDelay_ts));
-		dbg("MnRouterProbes = %u\n", c->MnRouterProbes);
-		dbg("MnRouterProbeTimeout = %f\n",
-		    tstodsec(c->MnRouterProbeTimeout_ts));
-		dbg("InitialBindackTimeoutFirstReg = %f\n", 
-		    tstodsec(c->InitialBindackTimeoutFirstReg_ts));
-		dbg("InitialBindackTimeoutReReg = %f\n", 
-		    tstodsec(c->InitialBindackTimeoutReReg_ts));
-		dbg("InitialSolicitTimer = %f\n",
-		    tstodsec(c->InitialSolicitTimer_ts));
-		dbg("OptimisticHandoff = %s\n",
-		    CONF_BOOL_STR(c->OptimisticHandoff));
-		dbg("MobRtrUseExplicitMode = %s\n",
-		    CONF_BOOL_STR(c->MobRtrUseExplicitMode));
-		dbg("NoHomeReturn = %s\n", CONF_BOOL_STR(c->NoHomeReturn));
-		if (c->MoveModulePath)
-			dbg("MoveModulePath = %s\n", c->MoveModulePath);
-		break;
-
-		case MIP6_ENTITY_HA:
-		/* HA options */
-		dbg("HaMaxBindingLife = %u\n", c->HaMaxBindingLife);
-		dbg("SendMobPfxAdvs = %s\n", CONF_BOOL_STR(c->SendMobPfxAdvs));
-		dbg("SendUnsolMobPfxAdvs = %s\n",
-		    CONF_BOOL_STR(c->SendUnsolMobPfxAdvs));
-		dbg("MinMobPfxAdvInterval = %u\n", c->MinMobPfxAdvInterval);
-		dbg("MaxMobPfxAdvInterval = %u\n", c->MaxMobPfxAdvInterval);
-		dbg("HaAcceptMobRtr = %s\n", CONF_BOOL_STR(c->HaAcceptMobRtr));
-		if (list_empty(&c->nemo_ha_served_prefixes)) {
-			dbg("HaServedPrefix = no prefixes\n");
-		} else {
-			dbg("HaServedPrefix =\n");
-			list_for_each(list, &c->nemo_ha_served_prefixes) {
-				struct prefix_list_entry *pfx;
-				pfx = list_entry(list, struct prefix_list_entry, list);
-				dbg("- %x:%x:%x:%x:%x:%x:%x:%x/%d\n",
-				    NIP6ADDR(&pfx->ple_prefix), pfx->ple_plen);
-			}
-		}
-		dbg("DefaultBindingAclPolicy = %s\n",
-		    (c->DefaultBindingAclPolicy  == IP6_MH_BAS_ACCEPTED) ?
-		     "allow":"deny");
-		list_for_each(list, &c->bind_acl) {
-			struct policy_bind_acl_entry *acl;
-			acl = list_entry(list, struct policy_bind_acl_entry, list);
-			dbg("- HoA %x:%x:%x:%x:%x:%x:%x:%x (%d MNP): %s\n",
-			    NIP6ADDR(&acl->hoa), acl->mnp_count,
-			    (acl->bind_policy == IP6_MH_BAS_ACCEPTED) ?
-			    "allow":"deny");
-		}
-		break;
-
-		case MIP6_ENTITY_CN:
-		/* CN options: no specific options (DoRouteOptimizationCN 
-		 * is shared by all nodes) */
-		break;
-
-		default:
-		break;
-	}
-}
-
-void conf_free(struct mip6_config *c)
-{
-	struct list_head *h, *nh;
-
-	if (c->config_file) {
-		free(c->config_file);
-	}
-
-	pmgr_close(&c->pmgr);
-
-	/* Cleanup the net_ifaces list */
-	list_for_each_safe(h, nh, &c->net_ifaces) {
-		list_del(h);
-		free(list_entry(h, struct net_iface, list));
-	}
-
-	/* For each home_addr_info, we have to remove the 
-	 * intern lists mob_net_prefix and ro_policy */
-	list_for_each_safe(h, nh, &c->home_addrs) {
-		struct home_addr_info *hai;
-		list_del(h);
-
-		hai = list_entry(h, struct home_addr_info, list);
-		prefix_list_free(&hai->ro_policies);
-		prefix_list_free(&hai->mob_net_prefixes);
-		free(hai);
-	}
-
-	/* Free the ipsec_policies list */
-	list_for_each_safe(h, nh, &c->ipsec_policies) {
-		list_del(h);
-		free(list_entry(h, struct ipsec_policy_entry, list));
-	}
-
-	/* Free the nemo_ha_served_prefixes list */
-	prefix_list_free(&c->nemo_ha_served_prefixes);
-
-	/* bind_acl is cleaned by by policy.c/policy_cleanup() */
-	/* cn_binding_pol is cleaned by by cn.c/cn_cleanup() */
-
-	/* Free debug_log_file and MoveModulePath,
-	 * allocated by gram.y */
-	if (c->debug_log_file)
-		free (c->debug_log_file);
+	/* MN options */
+	dbg("MnMaxHaBindingLife = %u\n", c->MnMaxHaBindingLife);
+	dbg("MnMaxCnBindingLife = %u\n", c->MnMaxCnBindingLife);
+	dbg("MnRouterProbes = %u\n", c->MnRouterProbes);
+	dbg("MnRouterProbeTimeout = %f\n",
+	    tstodsec(c->MnRouterProbeTimeout_ts));
+	dbg("InitialBindackTimeoutFirstReg = %f\n", 
+	    tstodsec(c->InitialBindackTimeoutFirstReg_ts));
+	dbg("InitialBindackTimeoutReReg = %f\n", 
+	    tstodsec(c->InitialBindackTimeoutReReg_ts));
 	if (c->MoveModulePath)
-		free (c->MoveModulePath);
-}
+		dbg("MoveModulePath = %s\n", c->MoveModulePath);
+	dbg("UseCnBuAck = %s\n", CONF_BOOL_STR(c->CnBuAck));
+	dbg("DoRouteOptimizationMN = %s\n",
+	    CONF_BOOL_STR(c->DoRouteOptimizationMN));
+	dbg("MnUseAllInterfaces = %s\n", CONF_BOOL_STR(c->MnUseAllInterfaces));
+	dbg("MnDiscardHaParamProb = %s\n",
+	    CONF_BOOL_STR(c->MnDiscardHaParamProb));
+	dbg("SendMobPfxSols = %s\n", CONF_BOOL_STR(c->SendMobPfxSols));
+	dbg("OptimisticHandoff = %s\n", CONF_BOOL_STR(c->OptimisticHandoff));
+	dbg("MobRtrUseExplicitMode = %s\n",
+	    CONF_BOOL_STR(c->MobRtrUseExplicitMode));
 
-int conf_update(struct mip6_config *c,
-		void (*apply_changes_cb)(struct mip6_config *,
-					 struct mip6_config *))
-{
-	/* c is a pointer to the current config.
-	 * We want to update some data from c according
-	 * to the changed configuration file. */
-	struct mip6_config *conf_new = NULL;
-	int ret = 0;
+	/* HA options */
+	dbg("SendMobPfxAdvs = %s\n", CONF_BOOL_STR(c->SendMobPfxAdvs));
+	dbg("SendUnsolMobPfxAdvs = %s\n",
+	    CONF_BOOL_STR(c->SendUnsolMobPfxAdvs));
+	dbg("MaxMobPfxAdvInterval = %u\n", c->MaxMobPfxAdvInterval);
+	dbg("MinMobPfxAdvInterval = %u\n", c->MinMobPfxAdvInterval);
+	dbg("HaMaxBindingLife = %u\n", c->HaMaxBindingLife);
+	dbg("HaAcceptMobRtr = %s\n", CONF_BOOL_STR(c->HaAcceptMobRtr));
 
-	conf_new = malloc(sizeof(*conf_new));
-	if (!conf_new) {
-		perror("conf_update");
-		return -1;
-	}
-
-	conf_default(conf_new);
-
-	/* gram.y stores configuration items in conf_parsed,
-	 * so point it to conf_new */
-	conf_parsed = conf_new;
-
-	if ((ret = conf_file(conf_new, c->config_file)) < 0) {
-		dbg("Error in the new configuration file, "
-		    "changes not applied\n");
-	}
-
-	/* Make conf_parsed point back to the original config */
-	conf_parsed = c;
-
-	/* We now have the new config in conf_new, we can compute
-	 * the differences that we are interrested in */
-	if (!ret) {
-		apply_changes_cb(c, conf_new);
-	}
-
-	/* Free the memory allocated during the process.
-	 * conf_free() does not free conf_new so we free it 
-	 * by ourselves */
-	conf_free(conf_new);
-	free(conf_new);
-
-	return ret;
+	/* CN options */
+	dbg("DoRouteOptimizationCN = %s\n",
+	    CONF_BOOL_STR(c->DoRouteOptimizationCN));
 }

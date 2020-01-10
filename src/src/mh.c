@@ -59,7 +59,7 @@
 #if MH_DEBUG_LEVEL >= 1
 #define MDBG dbg
 #else
-#define MDBG(...)
+#define MDBG(x...)
 #endif
 
 struct sock {
@@ -597,7 +597,6 @@ int mh_send(const struct in6_addr_bundle *addrs, const struct iovec *mh_vec,
 	int iov_count;
 	socklen_t rthlen = 0;
 
-	memset(iov, 0, (2*(IP6_MHOPT_MAX+1))*sizeof(struct iovec));
 	iov_count = mh_try_pad(mh_vec, iov, iovlen);
 	mh = (struct ip6_mh *)iov[0].iov_base;
 	mh->ip6mh_hdrlen = (mh_length(iov, iov_count) >> 3) - 1;
@@ -1001,7 +1000,7 @@ void mh_send_ba(const struct in6_addr_bundle *addrs, uint8_t status,
 	struct ip6_mh_binding_ack *ba;
 	struct iovec mh_vec[2];
 
-	MDBG("status %s (%d)\n", mh_ba_status_to_str(status), status);
+	MDBG("status %d\n", status);
 
 	ba = mh_create(mh_vec, IP6_MH_TYPE_BACK);
 	if (!ba)
@@ -1095,36 +1094,34 @@ void mh_cleanup(void)
 
 /* based on http://www.iana.org/assignments/mobility-parameters (last
  * updated 2008-10-10 version), but only for protocols we support, i.e.
- * MIPv6 and NEMO. */
-static const char *mh_ba_status_str[256] = {
-	[IP6_MH_BAS_ACCEPTED]            = "Binding Update accepted",
-	[IP6_MH_BAS_PRFX_DISCOV]         = "Accepted but prefix discovery necessary",
-	[IP6_MH_BAS_UNSPECIFIED]         = "Reason unspecified",
-	[IP6_MH_BAS_PROHIBIT]            = "Administratively prohibited",
-	[IP6_MH_BAS_INSUFFICIENT]        = "Insufficient resources",
-	[IP6_MH_BAS_HA_NOT_SUPPORTED]    = "Home registration not supported",
-	[IP6_MH_BAS_NOT_HOME_SUBNET]     = "Not home subnet",
-	[IP6_MH_BAS_NOT_HA]              = "Not home agent for this mobile node",
-	[IP6_MH_BAS_DAD_FAILED]          = "Duplicate Address Detection failed",
-	[IP6_MH_BAS_SEQNO_BAD]           = "Sequence number out of window",
-	[IP6_MH_BAS_HOME_NI_EXPIRED]     = "Expired home nonce index",
-	[IP6_MH_BAS_COA_NI_EXPIRED]      = "Expired care-of nonce index",
-	[IP6_MH_BAS_NI_EXPIRED]          = "Expired nonces",
-	[IP6_MH_BAS_REG_NOT_ALLOWED]     = "Registration type change disallowed",
-	[IP6_MH_BAS_MR_OP_NOT_PERMITTED] = "Mobile Router Operation not permitted",
-	[IP6_MH_BAS_INVAL_PRFX]          = "Invalid Prefix",
-	[IP6_MH_BAS_NOT_AUTH_FOR_PRFX]   = "Not Authorized for Prefix",
-	[IP6_MH_BAS_FWDING_FAILED]       = "Forwarding Setup failed",
-};
-
-const char *mh_ba_status_to_str(int status)
+ * MIPv6 and NEMO. Think about updating MAX_BA_STATUS_STR_LEN in header
+ * file if needed. */
+void mh_ba_status_to_str(int status, char *err_str)
 {
-	static char unknown[] = "unknown by UMIP";
-	const char *s;
+	char *s;
 
-	s = mh_ba_status_str[status];
-	if (s == NULL)
-		s = unknown;
+	switch (status) {
+	case IP6_MH_BAS_ACCEPTED:            s = "Binding Update accepted"; break;
+	case IP6_MH_BAS_PRFX_DISCOV:         s = "Accepted but prefix discovery necessary" ; break;
+	case IP6_MH_BAS_UNSPECIFIED:         s = "Reason unspecified"; break;
+	case IP6_MH_BAS_PROHIBIT:            s = "Administratively prohibited"; break;
+	case IP6_MH_BAS_INSUFFICIENT:        s = "Insufficient resources"; break;
+	case IP6_MH_BAS_HA_NOT_SUPPORTED:    s = "Home registration not supported"; break;
+	case IP6_MH_BAS_NOT_HOME_SUBNET:     s = "Not home subnet"; break;
+	case IP6_MH_BAS_NOT_HA:              s = "Not home agent for this mobile node"; break;
+	case IP6_MH_BAS_DAD_FAILED:          s = "Duplicate Address Detection failed"; break;
+	case IP6_MH_BAS_SEQNO_BAD:           s = "Sequence number out of window"; break;
+	case IP6_MH_BAS_HOME_NI_EXPIRED:     s = "Expired home nonce index"; break;
+	case IP6_MH_BAS_COA_NI_EXPIRED:      s = "Expired care-of nonce index";	break;
+	case IP6_MH_BAS_NI_EXPIRED:          s = "Expired nonces"; break;
+	case IP6_MH_BAS_REG_NOT_ALLOWED:     s = "Registration type change disallowed";	break;
+	case IP6_MH_BAS_MR_OP_NOT_PERMITTED: s = "Mobile Router Operation not permitted"; break;
+	case IP6_MH_BAS_INVAL_PRFX:          s = "Invalid Prefix"; break;
+	case IP6_MH_BAS_NOT_AUTH_FOR_PRFX:   s = "Not Authorized for Prefix"; break;
+	case IP6_MH_BAS_FWDING_FAILED:       s = "Forwarding Setup failed"; break;
+	default:                             s = "unknown by UMIP"; break;
+	}
 
-	return s;
+	memset(err_str, 0, MAX_BA_STATUS_STR_LEN);
+	sprintf(err_str, "%s (%d)", s, status);
 }
