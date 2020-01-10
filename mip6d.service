@@ -1,0 +1,10 @@
+[Unit]
+Description=MIPL Mobile IPv6
+After=network.target
+
+[Service]
+EnvironmentFile=-/etc/sysconfig/mip6d
+ExecStart=/usr/sbin/mip6d $ARGS
+
+[Install]
+WantedBy=multi-user.target
