@@ -1,7 +1,9 @@
+%define _hardened_build 1
+
 Name:		mipv6-daemon
 Epoch:		2
 Version:	1.0
-Release:	3%{?dist}
+Release:	5%{?dist}
 Summary:	Mobile IPv6 (MIPv6) Daemon
 
 Group:		System Environment/Daemons
@@ -11,6 +13,7 @@ Source0:	http://people.redhat.com/tgraf/mipv6-daemon/mipv6-daemon-%{version}.tar
 Source1:	mip6d.service
 Source2:	mip6d.sysconfig
 Source3:	mip6d.conf
+Patch1: 0001-rh804105_write_garbage_to_netlink_socket.patch
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
 BuildRequires: flex >= 2.5.31
@@ -29,6 +32,8 @@ reachable while moving around in the IPv6 Internet.
 
 %prep
 %setup -q -n umip-%{version}
+
+%patch1 -p1 -b .0001-rh804105_write_garbage_to_netlink_socket.orig
 
 %build
 %configure
@@ -101,6 +106,12 @@ rm -rf $RPM_BUILD_ROOT
 %{_mandir}/man7/*
 
 %changelog
+* Tue Jul 14 2015 Thomas Haller <thaller@redhat.com> - 2:1.0-5
+* fix writing garbage to netlink socket (rh #804105)
+
+* Tue May 26 2015 Hannes Frederic Sowa <hannes@redhat.com> - 2:1.0-4
+- enabled hardened build
+
 * Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 2:1.0-3
 - Mass rebuild 2014-01-24
 
